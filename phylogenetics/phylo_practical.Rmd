@@ -1,0 +1,312 @@
+---
+title: 'Intro to phylogenetics: practical'
+subtitle: 'AIMS-Imperial: modern statistics for global health'
+author: "Alexandra Blenkinsop"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objectives
+
+This practical will show you how to run a phylogenetic pipeline from consensus sequences including creating an alignment, adding suitable outgroups for rooting, inferring a phylogeny using the neighbour-joining method, and using bootstrapping to quantify uncertainty, and inferring the phylogeny using Bayesian methods in Stan, quantifying uncertainty from the posterior.
+
+
+We will be using the \texttt{ape} package for this practical, which has several tools for manipulating DNA sequence data in R and carrying out phylogenetic inference. The first step is to make sure you have this installed, as well as the following packages we need, using \texttt{install.packages()}.
+
+# Load packages
+```{r, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# install.packages("RSQLite")
+require(data.table)
+require(knitr)
+require(ape)
+require(ade4)
+# some packages for plotting
+require(ggplot2)
+require(ggtree)
+require(ggsci)
+require(viridis)
+
+```
+
+## Data
+
+First download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by \url[Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the \url[Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
+
+To view the alignemt, you can download an alignment viewer such as \url[AliView]{https://ormbunkar.se/aliview/}, or use the \url[IGV web interface]{https://igv.org/app/} or the \url[National Center for Biotechnology Information Multiple Sequence Alignment Viewer interface]{https://www.ncbi.nlm.nih.gov/projects/msaviewer/}. Here are the first ~360 positions of the alignment:
+
+```{r, include=TRUE, fig.height=8, fig.width=10, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+
+data.dir <- '/Users/alexb/Library/CloudStorage/OneDrive-ImperialCollegeLondon/Teaching/phylo_slides'
+out.dir <- '/Users/alexb/Library/CloudStorage/OneDrive-ImperialCollegeLondon/Teaching/phylo_slides'
+#data.dir <- '/Users/or105/Library/CloudStorage/OneDrive-SharedLibraries-ImperialCollegeLondon/Blenkinsop,\ Alexandra\ M\ -\ AIMS-Imperial-workshop/phylo_lab'
+#out.dir <- '/Users/or105/Library/CloudStorage/OneDrive-SharedLibraries-ImperialCollegeLondon/Blenkinsop,\ Alexandra\ M\ -\ AIMS-Imperial-workshop/phylo_lab'
+
+knitr::include_graphics(file.path(data.dir,'faria_2019_alignment.png'))
+
+```
+
+
+The taxa names are named uniformly in the Los Alamos HIV sequence database, with the format <Subtype.Isocode.Year.Name.Accession>.
+
+## Read in the alignment
+
+Your first task is to load the multiple sequence alignment and have a look at its structure.
+
+Read in the .fasta file. Note the format of FASTA - chevron denotes the taxon name. Gaps '-' are indel events (insertions/deletions). 'N' represents unknown characters.
+
+
+```{r, out.width='100%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+# https://adegenet.r-forge.r-project.org/files/MRC-session2-tuto.1.3.pdf
+# read data
+#filename <- '/Users/alexb/Downloads/_out.24020622582312CrYeqZLiXK2lIf4OF6Gnslsfnormal.fasta' # UK 06cpx
+#filename <- '/Users/alexb/Downloads/_out.240208002430434DMQSsAn0B2VbHYgj8CohUlsfnormal.fasta' # Scotland Manon
+#filename <- '/Users/alexb/Downloads/hiv-db_gap_strip_GB_BF.fasta' # GB data B, F, recombs
+#filename <- '/Users/alexb/Downloads/hiv-db_gap_strip_GB_BF_fixedalignment.fasta' 
+#filename <- '' # US tennessee dennis
+#filename <- '/Users/alexb/Downloads/Faria_2019.fasta'
+#filename <- '/Users/alexb/Downloads/Faria_2019_noC.fasta'
+#filename <- '/Users/alexb/Downloads/faria_1C.fasta'
+#filename <- '/Users/alexb/Downloads/faria_refC.fasta'
+#filename <- file.path(data.dir,'faria_2019.fasta')
+filename <- file.path(data.dir,'faria_2019_misaligned2.fasta')
+
+dna <- read.dna(file = filename, format = "fasta")
+#dna <- read.dna(file = "data/usflu.fasta", format = "fasta")
+dna
+class(dna)
+as.character(dna)[1:5, 1:10]
+
+```
+
+## Generate the genetic distance matrix
+
+Generate the distance matrix using the \texttt{ape} package, assuming the Tamura and Nei model for the evolutionary rate, which has two parameters. Plot the matrix.
+
+
+```{r, out.width='100%', include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+# calculate genetic distances using Tamura and Nei model (diff rates of transitions and transversions & bween site variation of substitution rate)
+D <- dist.dna(dna, model = "TN93")
+
+# plot distance matrix
+temp <- as.data.frame(as.matrix(D))
+#table.paint(temp, cleg = 0, clabel.row = 0.5, clabel.col = 0.5)
+temp <- t(as.matrix(D))
+temp <- temp[, ncol(temp):1]
+par(mar = c(1, 5, 5, 1))
+nseqs <- dim(dna)[1]
+#image(x = 1:nseqs, y = 1:nseqs, temp, col = rev(heat.colors(100)),
+# xaxt = "n", yaxt = "n", xlab = "", ylab = "")
+# axis(side = 2, at = 1:nseqs, lab = rownames(dna), las = 2, cex.axis = 0.5)
+# axis(side = 3, at = 1:nseqs, lab = rownames(dna), las = 3, cex.axis = 0.5)
+
+# melt the matrix to a data.table 
+tmp <- data.table(reshape2::melt(temp))
+# ensure the ordering of taxa are the same for plotting the matrix
+tmp[, Var2:= factor(Var2,levels=levels(Var1))]
+
+ggplot(tmp) + geom_tile(aes(x=Var1,y=Var2,fill=value)) +
+  scale_fill_viridis(option="magma",direction=-1) + 
+  labs(x='',y='',fill='Genetic distances\n(Tamura and Nei model)') +
+  theme_bw(base_size=6) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ 
+```
+
+
+## Build the tree
+<!-- Paste the .fasta file contents into the online tool \url[here]{https://www.hiv.lanl.gov/content/sequence/IQTREE/iqtree.html}. -->
+
+<!-- After submitting, you should receive an email when the job is complete, where you can view your phylogeny. -->
+
+<!-- Now you are going to make the phylogenetic tree using IQ-TREE, a maximum-likelihood based algorithm for inferring phylogenies. -->
+
+We can use the ape package in R, which has a few algorithms available. Build a tree using the neighbour-joining algorithm.
+
+What do you notice? Do any of the tree features suggest something has gone wrong with the alignment or phylogenetic inference?
+
+```{r, out.width='100%', out.height='100%', fig.width=6, fig.height=6, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+ 
+select <- data.table(taxa=labels(dna))
+select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
+mypal <- pal_npg('nrc')(4)
+select[, ST:= factor(ST)]
+
+colmap <- data.table(ST=c('G','02_AG','A','Ref'),
+                     color=mypal)
+select <- merge(select,colmap,by='ST')
+cols <- with(select, as.character(color[match(labels(dna), taxa)]))
+
+# build tree
+tre <- nj(D)
+class(tre)
+tre
+plot(tre, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+ #tiplabels(select$ST, col =  mypal)
+title("Tree using neighbour-joining algorithm")
+#ggsave(file='/Users/alexb/Downloads/faria_tree_AG_wrecomb.png')
+
+#ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
+#  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
+summary(tre)
+
+```
+
+
+## Correct the alignment
+
+Open the .fasta file with an alignment viewer and see if you can find and correct the alignment error. Save it with a different name.
+
+Read in the new .fasta file and repeat the steps above. Now the distance matrix no longer shows large differences between all sequences and the misligned sequence. The long branch has also gone from the tree.
+
+What else do you notice? Hint: the tips of the tree have been coloured according to their HIV-1 subtype. Subtypes are an indication of virus similarity. 
+
+
+```{r, out.width='100%', out.height='100%', fig.width=6, fig.height=6, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+ 
+filename <- file.path(data.dir,'faria_2019.fasta')
+
+dna <- read.dna(file = filename, format = "fasta")
+
+D <- dist.dna(dna, model = "TN93")
+
+# plot distance matrix
+temp <- as.data.frame(as.matrix(D))
+#table.paint(temp, cleg = 0, clabel.row = 0.5, clabel.col = 0.5)
+temp <- t(as.matrix(D))
+temp <- temp[, ncol(temp):1]
+par(mar = c(1, 5, 5, 1))
+nseqs <- dim(dna)[1]
+#image(x = 1:nseqs, y = 1:nseqs, temp, col = rev(heat.colors(100)),
+# xaxt = "n", yaxt = "n", xlab = "", ylab = "")
+# axis(side = 3, at = 1:nseqs, lab = rownames(dna), las = 3, cex.axis = 0.5)
+# axis(side = 2, at = 1:nseqs, lab = rownames(dna), las = 2, cex.axis = 0.5)
+
+# melt the matrix to a data.table 
+tmp <- data.table(reshape2::melt(temp))
+# ensure the ordering of taxa are the same for plotting the matrix
+tmp[, Var2:= factor(Var2,levels=levels(Var1))]
+
+ggplot(tmp) + geom_tile(aes(x=Var1,y=Var2,fill=value)) +
+  scale_fill_viridis(option="magma",direction=-1) + 
+  labs(x='',y='',fill='Genetic distances\n(Tamura and Nei model)') +
+  theme_bw(base_size=6) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+select <- data.table(taxa=labels(dna))
+select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
+mypal <- pal_npg('nrc')(4)
+select[, ST:= factor(ST)]
+
+colmap <- data.table(ST=c('G','02_AG','A','Ref'),
+                     color=mypal)
+select <- merge(select,colmap,by='ST')
+cols <- with(select, as.character(color[match(labels(dna), taxa)]))
+
+# build tree
+tre <- nj(D)
+class(tre)
+tre
+plot(tre, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+ #tiplabels(select$ST, col =  mypal)
+title("Tree using neighbour-joining algorithm")
+#ggsave(file='/Users/alexb/Downloads/faria_tree_AG_wrecomb.png')
+
+#ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
+#  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
+summary(tre)
+
+```
+
+
+First, we notice that the reference sequence (of subtype C) is in the middle of the tree. We can tell the algorithm where the root should be by specifying the outgroup.
+
+We also notice that there is a recombinant of subtypes A and G. The algorithm doesn't know where to put it in the tree, and we have a clade of both subtype A and subtype G viruses. What happens if we remove it?
+
+Here's are some hints for the functions you need:
+drop.tip()
+root()
+
+# re-root the tree and remove the recombinant
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+
+dna <- read.dna(file = filename, format = "fasta")
+#dna <- read.dna(file = "data/usflu.fasta", format = "fasta")
+dna
+class(dna)
+as.character(dna)[1:5, 1:10]
+
+# get subtype and remove recombinants
+subt <- data.table(taxa=labels(dna),
+                   ST=gsub('([A-Za-z0-9_]+).*','\\1',labels(dna)))
+subt_cnt <- subt[, list(N=.N),by='ST']
+subt_cnt <- subt_cnt[order(-N),]
+select <- subt[ST %in% c('A','G') | taxa %in% c('Ref.C.ZA.04.04ZASK146.AY772699'), 'taxa'] # remove recombinant
+select <- select[!taxa %in% c('A.CD.2008.DRC395.MN179029','A.CD.2008.DRC392.MN179026')]
+dna <- dna[labels(dna) %in% select$taxa,]
+
+D <- dist.dna(dna, model = "TN93")
+
+select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
+mypal <- pal_npg('nrc')(4)
+select[, ST:= factor(ST)]
+
+colmap <- data.table(ST=c('G','02_AG','A','Ref'),
+                     color=mypal)
+select <- merge(select,colmap,by='ST')
+cols <- with(select, as.character(color[match(labels(dna), taxa)]))
+
+tre <- nj(D)
+
+tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
+#tre2 <- root(tre, outgroup = 'C.CD.2008.DRC345.MN178982',resolve.root=TRUE)
+plot(tre2, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+title("Rooted tree using neighbour-joining algorithm")
+
+```
+
+Now by rooting the tree, the reference sequence has moved to be the ancestor of all the taxa. We now also see that all the subtype G taxa are in one clade, and all the subtype A taxa are in another.
+
+
+[Questions about interpretation]
+
+who is related?
+who shares common ancestor []?
+
+## Bootstrapping
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+D <- dist.dna(dna, model = "TN93")
+tre <- nj(D)
+tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
+
+myBoots <- boot.phylo(tre2, dna, function(e) nj(dist.dna(e, model = "TN93")))
+#myBoots
+
+
+plot(tre2, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+title("NJ tree + bootstrap values")
+#tiplabels(frame = "none", pch = 20, col = transp(num2col(annot$year,
+#+ col.pal = myPal), 0.7), cex = 3, fg = "transparent")
+#axisPhylo()
+#temp <- pretty(1993:2008, 5)
+#legend("topright", fill = transp(num2col(temp, col.pal = myPal),
+#+ 0.7), leg = temp, ncol = 2)
+nodelabels(myBoots, cex = 0.5)
+
+```
+
+## Re-build the phylogeny using a Bayesian approach
+
+stan
+
