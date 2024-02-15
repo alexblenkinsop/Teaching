@@ -12,19 +12,19 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Objectives
 
-This practical will show you how to run a phylogenetic pipeline from consensus sequences including creating an alignment, adding suitable outgroups for rooting, inferring a phylogeny using the neighbour-joining method, and using bootstrapping to quantify uncertainty, and inferring the phylogeny using Bayesian methods in Stan, quantifying uncertainty from the posterior.
+This practical will show you how to run a phylogenetic pipeline from consensus sequences including creating an alignment, specifying a suitable outgroup for rooting, inferring a phylogeny using the distance-based neighbour-joining method, and using bootstrapping to quantify uncertainty, and inferring the phylogeny using Bayesian methods in Stan, quantifying uncertainty from the posterior.
 
 
 We will be using the \texttt{ape} package for this practical, which has several tools for manipulating DNA sequence data in R and carrying out phylogenetic inference. The first step is to make sure you have this installed, as well as the following packages we need, using \texttt{install.packages()}.
 
 # Load packages
 ```{r, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# install.packages("RSQLite")
 require(data.table)
 require(knitr)
+# phylo packages
 require(ape)
 require(ade4)
-# some packages for plotting
+# packages for plotting
 require(ggplot2)
 require(ggtree)
 require(ggsci)
@@ -34,16 +34,14 @@ require(viridis)
 
 ## Data
 
-First download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by \url[Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the \url[Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
+First download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by [Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the [Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
 
-To view the alignemt, you can download an alignment viewer such as \url[AliView]{https://ormbunkar.se/aliview/}, or use the \url[IGV web interface]{https://igv.org/app/} or the \url[National Center for Biotechnology Information Multiple Sequence Alignment Viewer interface]{https://www.ncbi.nlm.nih.gov/projects/msaviewer/}. Here are the first ~360 positions of the alignment:
+To view the alignemt, you can download an alignment viewer such as [AliView]{https://ormbunkar.se/aliview/}, or use the [IGV web interface]{https://igv.org/app/} or the [National Center for Biotechnology Information Multiple Sequence Alignment Viewer interface]{https://www.ncbi.nlm.nih.gov/projects/msaviewer/}. Here are the first ~360 positions of the alignment:
 
 ```{r, include=TRUE, fig.height=8, fig.width=10, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 
-data.dir <- '/Users/alexb/Library/CloudStorage/OneDrive-ImperialCollegeLondon/Teaching/phylo_slides'
-out.dir <- '/Users/alexb/Library/CloudStorage/OneDrive-ImperialCollegeLondon/Teaching/phylo_slides'
-#data.dir <- '/Users/or105/Library/CloudStorage/OneDrive-SharedLibraries-ImperialCollegeLondon/Blenkinsop,\ Alexandra\ M\ -\ AIMS-Imperial-workshop/phylo_lab'
-#out.dir <- '/Users/or105/Library/CloudStorage/OneDrive-SharedLibraries-ImperialCollegeLondon/Blenkinsop,\ Alexandra\ M\ -\ AIMS-Imperial-workshop/phylo_lab'
+data.dir <- '/Users/alexb/Documents/GitHub/Teaching/phylogenetics'
+out.dir <- '/Users/alexb/Documents/GitHub/Teaching/phylogenetics'
 
 knitr::include_graphics(file.path(data.dir,'faria_2019_alignment.png'))
 
@@ -61,22 +59,11 @@ Read in the .fasta file. Note the format of FASTA - chevron denotes the taxon na
 
 ```{r, out.width='100%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
-# https://adegenet.r-forge.r-project.org/files/MRC-session2-tuto.1.3.pdf
 # read data
-#filename <- '/Users/alexb/Downloads/_out.24020622582312CrYeqZLiXK2lIf4OF6Gnslsfnormal.fasta' # UK 06cpx
-#filename <- '/Users/alexb/Downloads/_out.240208002430434DMQSsAn0B2VbHYgj8CohUlsfnormal.fasta' # Scotland Manon
-#filename <- '/Users/alexb/Downloads/hiv-db_gap_strip_GB_BF.fasta' # GB data B, F, recombs
-#filename <- '/Users/alexb/Downloads/hiv-db_gap_strip_GB_BF_fixedalignment.fasta' 
-#filename <- '' # US tennessee dennis
-#filename <- '/Users/alexb/Downloads/Faria_2019.fasta'
-#filename <- '/Users/alexb/Downloads/Faria_2019_noC.fasta'
-#filename <- '/Users/alexb/Downloads/faria_1C.fasta'
-#filename <- '/Users/alexb/Downloads/faria_refC.fasta'
-#filename <- file.path(data.dir,'faria_2019.fasta')
 filename <- file.path(data.dir,'faria_2019_misaligned2.fasta')
+#filename <- file.path(data.dir,'faria_2019_AGC_misaligned.fasta')
 
 dna <- read.dna(file = filename, format = "fasta")
-#dna <- read.dna(file = "data/usflu.fasta", format = "fasta")
 dna
 class(dna)
 as.character(dna)[1:5, 1:10]
@@ -95,15 +82,10 @@ D <- dist.dna(dna, model = "TN93")
 
 # plot distance matrix
 temp <- as.data.frame(as.matrix(D))
-#table.paint(temp, cleg = 0, clabel.row = 0.5, clabel.col = 0.5)
 temp <- t(as.matrix(D))
 temp <- temp[, ncol(temp):1]
 par(mar = c(1, 5, 5, 1))
 nseqs <- dim(dna)[1]
-#image(x = 1:nseqs, y = 1:nseqs, temp, col = rev(heat.colors(100)),
-# xaxt = "n", yaxt = "n", xlab = "", ylab = "")
-# axis(side = 2, at = 1:nseqs, lab = rownames(dna), las = 2, cex.axis = 0.5)
-# axis(side = 3, at = 1:nseqs, lab = rownames(dna), las = 3, cex.axis = 0.5)
 
 # melt the matrix to a data.table 
 tmp <- data.table(reshape2::melt(temp))
@@ -120,15 +102,11 @@ ggplot(tmp) + geom_tile(aes(x=Var1,y=Var2,fill=value)) +
 
 
 ## Build the tree
-<!-- Paste the .fasta file contents into the online tool \url[here]{https://www.hiv.lanl.gov/content/sequence/IQTREE/iqtree.html}. -->
-
-<!-- After submitting, you should receive an email when the job is complete, where you can view your phylogeny. -->
-
-<!-- Now you are going to make the phylogenetic tree using IQ-TREE, a maximum-likelihood based algorithm for inferring phylogenies. -->
 
 We can use the ape package in R, which has a few algorithms available. Build a tree using the neighbour-joining algorithm.
 
 What do you notice? Do any of the tree features suggest something has gone wrong with the alignment or phylogenetic inference?
+
 
 ```{r, out.width='100%', out.height='100%', fig.width=6, fig.height=6, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
  
@@ -148,9 +126,7 @@ class(tre)
 tre
 plot(tre, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
- #tiplabels(select$ST, col =  mypal)
 title("Tree using neighbour-joining algorithm")
-#ggsave(file='/Users/alexb/Downloads/faria_tree_AG_wrecomb.png')
 
 #ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
 #  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
@@ -161,16 +137,20 @@ summary(tre)
 
 ## Correct the alignment
 
-Open the .fasta file with an alignment viewer and see if you can find and correct the alignment error. Save it with a different name.
+See if you can find the reason for the long branch by taking a look at the alignment.
+
+Open the .fasta file with an alignment viewer and see if you can find and correct the alignment error. Hint: the sequences in the alignment must all be the same length.
+
+Save it with a different name.
 
 Read in the new .fasta file and repeat the steps above. Now the distance matrix no longer shows large differences between all sequences and the misligned sequence. The long branch has also gone from the tree.
 
 What else do you notice? Hint: the tips of the tree have been coloured according to their HIV-1 subtype. Subtypes are an indication of virus similarity. 
 
-
-```{r, out.width='100%', out.height='100%', fig.width=6, fig.height=6, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
  
+```{r, out.width='100%', out.height='100%', include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 filename <- file.path(data.dir,'faria_2019.fasta')
+#filename <- file.path(data.dir,'faria_2019_AGC.fasta')
 
 dna <- read.dna(file = filename, format = "fasta")
 
@@ -178,15 +158,10 @@ D <- dist.dna(dna, model = "TN93")
 
 # plot distance matrix
 temp <- as.data.frame(as.matrix(D))
-#table.paint(temp, cleg = 0, clabel.row = 0.5, clabel.col = 0.5)
 temp <- t(as.matrix(D))
 temp <- temp[, ncol(temp):1]
 par(mar = c(1, 5, 5, 1))
 nseqs <- dim(dna)[1]
-#image(x = 1:nseqs, y = 1:nseqs, temp, col = rev(heat.colors(100)),
-# xaxt = "n", yaxt = "n", xlab = "", ylab = "")
-# axis(side = 3, at = 1:nseqs, lab = rownames(dna), las = 3, cex.axis = 0.5)
-# axis(side = 2, at = 1:nseqs, lab = rownames(dna), las = 2, cex.axis = 0.5)
 
 # melt the matrix to a data.table 
 tmp <- data.table(reshape2::melt(temp))
@@ -215,9 +190,7 @@ class(tre)
 tre
 plot(tre, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
- #tiplabels(select$ST, col =  mypal)
 title("Tree using neighbour-joining algorithm")
-#ggsave(file='/Users/alexb/Downloads/faria_tree_AG_wrecomb.png')
 
 #ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
 #  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
@@ -226,32 +199,23 @@ summary(tre)
 ```
 
 
-First, we notice that the reference sequence (of subtype C) is in the middle of the tree. We can tell the algorithm where the root should be by specifying the outgroup.
+We notice that there is a recombinant of subtypes A and G. The algorithm doesn't know where to put it in the tree, and we have a clade of both subtype A and subtype G viruses. What happens if we remove it?
 
-We also notice that there is a recombinant of subtypes A and G. The algorithm doesn't know where to put it in the tree, and we have a clade of both subtype A and subtype G viruses. What happens if we remove it?
+Hint: the taxa labels for the alignment are stored in \texttt{labels(dna)}.
 
-Here's are some hints for the functions you need:
-drop.tip()
-root()
+# Remove the recombinant
+```{r, out.width='100%',fig.width=8, fig.height=10, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
-# re-root the tree and remove the recombinant
-```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+# find recombinant taxa label which isn't subtype G or A
+to_remove <- labels(dna)[!gsub('([A-Za-z0-9_]+).*','\\1',labels(dna)) %in% c('G','A','Ref')]
 
+# remove recombinant
+dna <- dna[!labels(dna)==to_remove,]
 
-dna <- read.dna(file = filename, format = "fasta")
-#dna <- read.dna(file = "data/usflu.fasta", format = "fasta")
-dna
-class(dna)
-as.character(dna)[1:5, 1:10]
-
-# get subtype and remove recombinants
-subt <- data.table(taxa=labels(dna),
-                   ST=gsub('([A-Za-z0-9_]+).*','\\1',labels(dna)))
-subt_cnt <- subt[, list(N=.N),by='ST']
-subt_cnt <- subt_cnt[order(-N),]
-select <- subt[ST %in% c('A','G') | taxa %in% c('Ref.C.ZA.04.04ZASK146.AY772699'), 'taxa'] # remove recombinant
-select <- select[!taxa %in% c('A.CD.2008.DRC395.MN179029','A.CD.2008.DRC392.MN179026')]
-dna <- dna[labels(dna) %in% select$taxa,]
+select <- data.table(taxa=labels(dna))
+select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
+mypal <- pal_npg('nrc')(4)
+select[, ST:= factor(ST)]
 
 D <- dist.dna(dna, model = "TN93")
 
@@ -265,10 +229,31 @@ select <- merge(select,colmap,by='ST')
 cols <- with(select, as.character(color[match(labels(dna), taxa)]))
 
 tre <- nj(D)
+plot(tre, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+title("Unrooted tree using neighbour-joining algorithm")
+
+
+```
+
+
+The reference sequence (subtype C) is part of the G clade, and the subtype A sequences are all in subclades, which is not what we expect given the subtype classifications. We can tell the algorithm where the root should be by specifying the outgroup.
+
+We can root the tree using the command \texttt{root()}, and we can drop the root tip from the phylogeny as it isn't part of our study, using the \texttt{drop.tip()} function in \texttt{ape}.
+
+## Root the tree and drop the root tip
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
 tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
+#tre2 <- root(tre, outgroup = 'Ref.C.CD.2008.DRC345.MN178982',resolve.root=TRUE)
 #tre2 <- root(tre, outgroup = 'C.CD.2008.DRC345.MN178982',resolve.root=TRUE)
-plot(tre2, cex = 0.6, tip.color = cols)
+#plot(tre2, cex = 0.6, tip.color = cols)
+#add.scale.bar(x=0,y=0)
+#title("Rooted tree using neighbour-joining algorithm")
+
+tre3 <- drop.tip(tre2,"Ref.C.ZA.04.04ZASK146.AY772699",rooted=TRUE)
+#tre3 <- drop.tip(tre2,"Ref.C.CD.2008.DRC345.MN178982",rooted=TRUE)
+plot(tre3, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
 title("Rooted tree using neighbour-joining algorithm")
 
@@ -283,13 +268,16 @@ who is related?
 who shares common ancestor []?
 
 ## Bootstrapping
+
+Now let's bootstrap resample each site of the alignment with replacement, carry out phylogenetic inference as before, and plot the tree with internal nodes labelled with the number of boostrapped trees 
+
 ```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
-D <- dist.dna(dna, model = "TN93")
-tre <- nj(D)
-tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
+#D <- dist.dna(dna, model = "TN93")
+#tre <- nj(D)
+#tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
 
-myBoots <- boot.phylo(tre2, dna, function(e) nj(dist.dna(e, model = "TN93")))
+myBoots <- boot.phylo(tre2, dna, function(e) nj(dist.dna(e, model = "TN93")),B=100)
 #myBoots
 
 
@@ -303,6 +291,12 @@ title("NJ tree + bootstrap values")
 #legend("topright", fill = transp(num2col(temp, col.pal = myPal),
 #+ 0.7), leg = temp, ncol = 2)
 nodelabels(myBoots, cex = 0.5)
+
+#d <- dist.dna(woodmouse)
+#tr <- nj(d)
+#bp <- boot.phylo(tr, woodmouse, function(xx) nj(dist.dna(xx)))
+#tree <- apeBoot(tr, bp)
+#ggtree(tree) + geom_label(aes(label=bootstrap)) + geom_tiplab()
 
 ```
 
