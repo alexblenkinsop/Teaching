@@ -12,10 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Objectives
 
-This practical will show you how to run a phylogenetic pipeline from consensus sequences including creating an alignment, specifying a suitable outgroup for rooting, inferring a phylogeny using the distance-based neighbour-joining method, and using bootstrapping to quantify uncertainty, and inferring the phylogeny using Bayesian methods in Stan, quantifying uncertainty from the posterior.
+This practical will show you how to run a phylogenetic pipeline from consensus sequences including creating an alignment, specifying a suitable outgroup for rooting, inferring a phylogeny using the distance-based neighbour-joining method, resolving alignment issues and using bootstrapping to quantify uncertainty.
 
-
-We will be using the \texttt{ape} package for this practical, which has several tools for manipulating DNA sequence data in R and carrying out phylogenetic inference. The first step is to make sure you have this installed, as well as the following packages we need, using \texttt{install.packages()}.
+We will be using the \texttt{ape} package for this practical, which has several tools for manipulating DNA sequence data in R and carrying out phylogenetic inference. The first step is to make sure you have this installed, as well as the other packages we need, using \texttt{install.packages()}.
 
 # Load packages
 ```{r, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -34,7 +33,7 @@ require(viridis)
 
 ## Data
 
-First download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by [Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the [Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
+Download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by [Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the [Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
 
 To view the alignemt, you can download an alignment viewer such as [AliView]{https://ormbunkar.se/aliview/}, or use the [IGV web interface]{https://igv.org/app/} or the [National Center for Biotechnology Information Multiple Sequence Alignment Viewer interface]{https://www.ncbi.nlm.nih.gov/projects/msaviewer/}. Here are the first ~360 positions of the alignment:
 
@@ -56,16 +55,18 @@ Your first task is to load the multiple sequence alignment and have a look at it
 
 Read in the .fasta file. Note the format of FASTA - chevron denotes the taxon name. Gaps '-' are indel events (insertions/deletions). 'N' represents unknown characters.
 
+How many sequences do we have and what length are they?
+
 
 ```{r, out.width='100%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
 # read data
-filename <- file.path(data.dir,'faria_2019_misaligned2.fasta')
-#filename <- file.path(data.dir,'faria_2019_AGC_misaligned.fasta')
+filename <- file.path(data.dir,'faria_2019.fasta')
 
 dna <- read.dna(file = filename, format = "fasta")
 dna
 class(dna)
+# look at positions 1:10 in the alignment of the first 5 taxa
 as.character(dna)[1:5, 1:10]
 
 ```
@@ -74,6 +75,9 @@ as.character(dna)[1:5, 1:10]
 
 Generate the distance matrix using the \texttt{ape} package, assuming the Tamura and Nei model for the evolutionary rate, which has two parameters. Plot the matrix.
 
+Note that entries $i=j$ have a genetic distance of zero.
+
+There are two types of HIV, HIV-1 and HIV-2, which can further be classified by subtype. All the sequences in this study are from individuals with HIV-1, which is the most prevalent type of HIV globally. The taxa labels indicate subtype. Subtypes are an indication of virus similarity. Which sequences have the largest distances?
 
 ```{r, out.width='100%', include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
@@ -145,12 +149,11 @@ Save it with a different name.
 
 Read in the new .fasta file and repeat the steps above. Now the distance matrix no longer shows large differences between all sequences and the misligned sequence. The long branch has also gone from the tree.
 
-What else do you notice? Hint: the tips of the tree have been coloured according to their HIV-1 subtype. Subtypes are an indication of virus similarity. 
+What else do you notice? Hint: the tips of the tree have been coloured according to their HIV-1 subtype. 
 
  
 ```{r, out.width='100%', out.height='100%', include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
-filename <- file.path(data.dir,'faria_2019.fasta')
-#filename <- file.path(data.dir,'faria_2019_AGC.fasta')
+filename <- file.path(data.dir,'faria_2019_fixedalignment.fasta')
 
 dna <- read.dna(file = filename, format = "fasta")
 
@@ -241,21 +244,14 @@ The reference sequence (subtype C) is part of the G clade, and the subtype A seq
 
 We can root the tree using the command \texttt{root()}, and we can drop the root tip from the phylogeny as it isn't part of our study, using the \texttt{drop.tip()} function in \texttt{ape}.
 
-## Root the tree and drop the root tip
+## Root the tree
 ```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
 tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
-#tre2 <- root(tre, outgroup = 'Ref.C.CD.2008.DRC345.MN178982',resolve.root=TRUE)
-#tre2 <- root(tre, outgroup = 'C.CD.2008.DRC345.MN178982',resolve.root=TRUE)
-#plot(tre2, cex = 0.6, tip.color = cols)
-#add.scale.bar(x=0,y=0)
-#title("Rooted tree using neighbour-joining algorithm")
-
-tre3 <- drop.tip(tre2,"Ref.C.ZA.04.04ZASK146.AY772699",rooted=TRUE)
-#tre3 <- drop.tip(tre2,"Ref.C.CD.2008.DRC345.MN178982",rooted=TRUE)
-plot(tre3, cex = 0.6, tip.color = cols)
+plot(tre2, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
 title("Rooted tree using neighbour-joining algorithm")
+
 
 ```
 
