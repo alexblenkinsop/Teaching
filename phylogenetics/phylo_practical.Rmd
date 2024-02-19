@@ -23,6 +23,8 @@ require(knitr)
 # phylo packages
 require(ape)
 require(ade4)
+require(phangorn)
+require(phytools)
 # packages for plotting
 require(ggplot2)
 require(ggtree)
@@ -33,9 +35,9 @@ require(viridis)
 
 ## Data
 
-Download the consensus sequences for this practical from \url{}, which are a subset of partial polyamerase (\textit{pol}) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by [Faria et al, 2019]{https://doi.org/10.1371/journal.ppat.1007976}, tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the [Los Alamos HIV sequence database]{https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html}, by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
+Download the consensus sequences for this practical from [github.com/mlgh/aims-imperial](www.github.com/mlgh/aims-imperial), which are a subset of partial polymerase (*pol*) sequences from HIV positive individuals from the Democratic Republic of Congo from this study by [Faria et al, 2019](https://doi.org/10.1371/journal.ppat.1007976), tracing the evolutionary dynamics of major HIV-1 subtypes across Central and Eastern Africa. The data were obtained from the [Los Alamos HIV sequence database](https://www.hiv.lanl.gov/components/sequence/HIV/search/search.html), by searching for the GenBank Accession numbers listed in the manuscript and selecting a subset of subtypes for the purpose of this practical.
 
-To view the alignemt, you can download an alignment viewer such as [AliView]{https://ormbunkar.se/aliview/}, or use the [IGV web interface]{https://igv.org/app/} or the [National Center for Biotechnology Information Multiple Sequence Alignment Viewer interface]{https://www.ncbi.nlm.nih.gov/projects/msaviewer/}. Here are the first ~360 positions of the alignment:
+To view the alignemt, you can download an alignment viewer such as  [AliView](https://ormbunkar.se/aliview/) (requires download) or  [jalview](https://www.jalview.org/jalview-js/JalviewJS.shtml/) (web interface). Here is a snapshot of part of the alignment:
 
 ```{r, include=TRUE, fig.height=8, fig.width=10, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 
@@ -65,15 +67,37 @@ filename <- file.path(data.dir,'faria_2019.fasta')
 
 dna <- read.dna(file = filename, format = "fasta")
 dna
+
+```
+
+Check the format of the data - the ape package in R handles objects with class DNAbin.
+
+```{r, out.width='100%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
 class(dna)
-# look at positions 1:10 in the alignment of the first 5 taxa
+
+```
+
+look at positions 1:10 in the alignment of the first 5 taxa
+
+```{r, out.width='100%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 as.character(dna)[1:5, 1:10]
 
 ```
 
+We can also visualise these data in R, re-coding ambiguous sites as 'others'. The x-axis is the position in the alignment, but this is not meaningful unless it is mapped to some known genomic coordinates. The y-axis are the taxa. We showw just the first 300 positions and first 20 taxa to keep it legible.
+
+```{r, out.width='100%',fig.height = 8, fig.width=10, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+#ape::image.DNAbin(dna[,ape::seg.sites(dna)], cex.lab = 0.3, cex.axis = 0.7)
+par(mar=c(5,8,4,2))
+ape::image.DNAbin(dna[1:30,1:200], cex.lab = 0.5, cex.axis = 0.7)
+```
+
+
 ## Generate the genetic distance matrix
 
-Generate the distance matrix using the \texttt{ape} package, assuming the Tamura and Nei model for the evolutionary rate, which has two parameters. Plot the matrix.
+Generate the distance matrix using the *ape* package, assuming the Tamura and Nei model for the evolutionary rate, which has two parameters. Plot the matrix.
 
 Note that entries $i=j$ have a genetic distance of zero.
 
@@ -107,12 +131,12 @@ ggplot(tmp) + geom_tile(aes(x=Var1,y=Var2,fill=value)) +
 
 ## Build the tree
 
-We can use the ape package in R, which has a few algorithms available. Build a tree using the neighbour-joining algorithm.
+We can use the *ape* package in R, which has a few algorithms available. Build a tree using the neighbour-joining algorithm.
 
-What do you notice? Do any of the tree features suggest something has gone wrong with the alignment or phylogenetic inference?
+What do you notice? Which tips share a common ancestor? Do any of the tree features suggest something has gone wrong with the alignment or phylogenetic inference?
 
 
-```{r, out.width='100%', out.height='100%', fig.width=6, fig.height=6, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+```{r, out.width='100%', out.height='100%', fig.width=8, fig.height=10, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
  
 select <- data.table(taxa=labels(dna))
 select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
@@ -127,14 +151,14 @@ cols <- with(select, as.character(color[match(labels(dna), taxa)]))
 # build tree
 tre <- nj(D)
 class(tre)
-tre
+#tre
+summary(tre)
 plot(tre, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
 title("Tree using neighbour-joining algorithm")
 
 #ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
 #  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
-summary(tre)
 
 ```
 
@@ -143,11 +167,11 @@ summary(tre)
 
 See if you can find the reason for the long branch by taking a look at the alignment.
 
-Open the .fasta file with an alignment viewer and see if you can find and correct the alignment error. Hint: the sequences in the alignment must all be the same length.
+Open the .fasta file with an alignment viewer such as [AliView](https://ormbunkar.se/aliview/) [jalview](https://www.jalview.org/jalview-js/JalviewJS.shtml/) and see if you can find and correct the alignment error. Hint: the sequences in the alignment must all be the same length.
 
-Save it with a different name.
+Export the amended alignment and save it with a different name in .fasta format.
 
-Read in the new .fasta file and repeat the steps above. Now the distance matrix no longer shows large differences between all sequences and the misligned sequence. The long branch has also gone from the tree.
+Read in the new .fasta file and repeat the steps above. Now the distance matrix no longer shows large differences between all sequences and the misaligned sequence. The long branch has also gone from the tree.
 
 What else do you notice? Hint: the tips of the tree have been coloured according to their HIV-1 subtype. 
 
@@ -177,6 +201,10 @@ ggplot(tmp) + geom_tile(aes(x=Var1,y=Var2,fill=value)) +
   theme_bw(base_size=6) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
+```
+
+```{r, out.width='100%', out.height='100%', fig.height=10, fig.width=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
 select <- data.table(taxa=labels(dna))
 select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
 mypal <- pal_npg('nrc')(4)
@@ -190,21 +218,21 @@ cols <- with(select, as.character(color[match(labels(dna), taxa)]))
 # build tree
 tre <- nj(D)
 class(tre)
-tre
+#tre
+summary(tre)
 plot(tre, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
 title("Tree using neighbour-joining algorithm")
 
 #ggtree(nhx) + geom_tiplab(aes(color = label %in% to_drop)) +
 #  scale_color_manual(values=c("black", "red")) + xlim(0, 0.8)
-summary(tre)
 
 ```
 
 
 We notice that there is a recombinant of subtypes A and G. The algorithm doesn't know where to put it in the tree, and we have a clade of both subtype A and subtype G viruses. What happens if we remove it?
 
-Hint: the taxa labels for the alignment are stored in \texttt{labels(dna)}.
+Hint: the taxa labels for the alignment are stored in labels(dna).
 
 # Remove the recombinant
 ```{r, out.width='100%',fig.width=8, fig.height=10, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
@@ -220,7 +248,6 @@ select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
 mypal <- pal_npg('nrc')(4)
 select[, ST:= factor(ST)]
 
-D <- dist.dna(dna, model = "TN93")
 
 select[, ST:=gsub('([A-Za-z0-9_]+).*','\\1',taxa)]
 mypal <- pal_npg('nrc')(4)
@@ -231,10 +258,12 @@ colmap <- data.table(ST=c('G','02_AG','A','Ref'),
 select <- merge(select,colmap,by='ST')
 cols <- with(select, as.character(color[match(labels(dna), taxa)]))
 
+D <- dist.dna(dna, model = "TN93")
+
 tre <- nj(D)
 plot(tre, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
-title("Unrooted tree using neighbour-joining algorithm")
+title("Tree using neighbour-joining algorithm")
 
 
 ```
@@ -242,12 +271,16 @@ title("Unrooted tree using neighbour-joining algorithm")
 
 The reference sequence (subtype C) is part of the G clade, and the subtype A sequences are all in subclades, which is not what we expect given the subtype classifications. We can tell the algorithm where the root should be by specifying the outgroup.
 
-We can root the tree using the command \texttt{root()}, and we can drop the root tip from the phylogeny as it isn't part of our study, using the \texttt{drop.tip()} function in \texttt{ape}.
+We can root the tree using the command root(), and we can drop the root tip from the phylogeny as it isn't part of our study, using the drop.tip() function in *ape*.
 
 ## Root the tree
 ```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
 
-tre2 <- root(tre, outgroup = 'Ref.C.ZA.04.04ZASK146.AY772699',resolve.root=TRUE)
+# find the tip label containing 'Ref'
+lab.root <- labels(dna)[grep('Ref',labels(dna))]
+
+# re-root the tree
+tre2 <- root(tre, outgroup = lab.root, resolve.root=TRUE)
 plot(tre2, cex = 0.6, tip.color = cols)
 add.scale.bar(x=0,y=0)
 title("Rooted tree using neighbour-joining algorithm")
@@ -258,10 +291,22 @@ title("Rooted tree using neighbour-joining algorithm")
 Now by rooting the tree, the reference sequence has moved to be the ancestor of all the taxa. We now also see that all the subtype G taxa are in one clade, and all the subtype A taxa are in another.
 
 
-[Questions about interpretation]
+## Extract a clade
 
-who is related?
-who shares common ancestor []?
+There are a few different tools in ape for plotting. See if you can extract the G clade and plot it. You will need the following functions: fastMRCA() and extract.clade().
+
+```{r, out.width='100%',fig.width=8, fig.height=4, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+node <- fastMRCA(tre2,"G.CD.2008.DRC319.MN178973",
+    "G.CD.2008.DRC358.MN178994")
+G.clade <- extract.clade(tre2,node)
+#plotTree(pr.clade,ftype="i")
+plot(G.clade, cex = 0.6, tip.color = mypal[1])
+add.scale.bar(x=0,y=0)
+title("Subtype G clade")
+
+```
+
 
 ## Bootstrapping
 
@@ -296,7 +341,69 @@ nodelabels(myBoots, cex = 0.5)
 
 ```
 
-## Re-build the phylogeny using a Bayesian approach
+## Re-build tree using maximum likelihood estimation
 
-stan
+Finally, we will not re-estimate the tree using a maximum-likelihood approach, which uses the sequence data in a statistical framework where we seek to estimate model parameters.
+
+We will use the phangorn package, which requires the data to be in a different format, phyDat.
+
+We then compute the likelihood of our existing neighbour-joining tree and optimise to find the best tree for the model parameters.
+
+
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+# convert the alignment to PhyDat using phangorn package
+#dat_phydat <- phyDat(dna, type = "DNA", levels = NULL)
+dat2 <- as.phyDat(dna)
+dat2
+tre2.lik <- pml(tre2, dat2)
+tre2.lik
+
+```
+
+We next optimise, where the algorithm searches the tree topology space to find the best tree for the chosen substitution rate model.
+
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+opt.tre <- optim.pml(tre2.lik, optNni = TRUE, optBf = TRUE, optQ = TRUE,
+ optGamma = TRUE)
+opt.tre
+
+```
+
+We can then compare the optimal tree with the initial tree with a likelihood ratio test and confirm that it has a substantially larger likelihood.
+
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+anova(tre2.lik, opt.tre)
+
+```
+
+
+We can plot it again,
+
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+opt.tre.root <- root(opt.tre$tree, outgroup = lab.root, resolve.root=TRUE)
+plot(opt.tre.root, cex = 0.6, tip.color = cols)
+add.scale.bar(x=0,y=0)
+title("Rooted maximum likelihood tree")
+
+
+```
+
+We can also re-compute the bootstrap values for internal nodes.
+
+```{r, out.width='100%',fig.width=8, fig.height=8, include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+
+bs <- bootstrap.pml(opt.tre, bs=100, optNni=TRUE, multicore=TRUE, control = pml.control(trace=0))
+plotBS(midpoint(opt.tre$tree), bs, type="p",cex = 0.6, tip.color = cols)
+#plotBS(midpoint(opt.tre.root), bs, type="p",cex = 0.6, tip.color = cols)
+#bs <- bootstrap.pml(opt.tre.root, bs=100, optNni=TRUE, multicore=TRUE, control = pml.control(trace=0))
+add.scale.bar()
+title("ML tree")
+
+```
+
 
