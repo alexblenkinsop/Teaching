@@ -1,0 +1,298 @@
+---
+title: |
+  ![](images\IMP_ML_K_PS_CLEAR-SPACE2.png){height=14mm}
+  <br><br>
+  Simulating an epidemic
+author: "Alexandra Blenkinsop<br><br>"
+#output: pdf_document 
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+include_solutions <- FALSE
+require(ggplot2)
+require(data.table)
+
+set.seed(50)
+
+```
+
+# Objectives
+Hello all!
+
+The objective of this computer practical is to understand how the renewal model can be used to model infections in an epidemic over time, and depends on different parameters.
+
+# Renewal branching process
+
+Consider COVID-19, where governments were interested in monitoring the number of new infections daily.
+
+We can model the number of new infections on day $t$, denoted by $I_t$, with a renewal branching process. First we need a few ingredients:
+
+  * The reproduction number, which we denote by $R_0$. It is interpreted as the average number of people one case goes on to infect.
+  * The probability a new infection from person A to person B takes $t - s$ days on average, denoted by $w_{t-s}$. This is because once someone is infected with COVID-19, it takes time to become infectious themselves.
+
+The renewal branching process is modelled by,
+\begin{align}\label{e:model_deaths}
+  I_t \sim \text{Poisson}(R_0 \sum_{s=0}^t I_s w_{t-s}).
+\end{align}
+We can interpret this as saying the number of new infections on day $t$ occur at a rate, which depends on:
+
+  *  The number of infections on each of the previous days up to day $t$ ($I_s$, $s\le t$)
+  *  The average number of new people each case transmits to ($R_0$)
+  *  The probability that a secondary infection occurs $t − s$ days after primary infection ($w_{t-s}$)
+
+The most important characteristic of the renewal model is that infections on day $t$ depend on past infections.
+
+## Poisson distribution
+
+$\text{Poisson}()$ means that we assume a parametric (Poisson) distribution for the rate of new infections.
+
+You are probably already familiar with the Normal distribution, which describes how continuous measures are distributed (e.g. height, weight). What do we do when our data is non-normal? The number of infections is considered to be **discrete**, since it can only take integer values (1, 2, 3, etc). The Poisson distribution is an example of a discrete probability distribution. It is parameterised by its rate, $\lambda$.
+
+As an example, if we think new infections occur at a mean constant rate of 30 per day, simulating from a Poisson distribution introduces some randomness around that value. For example, if we draw 1000 counts with mean rate of 30, we can visualise the distribution as follows:
+
+```{r, out.width='70%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+rates <- data.table(lambda=rpois(1000,lambda = 30))
+
+ggplot(rates,aes(x=lambda)) + geom_histogram(binwidth=1, fill='#00A087FF',colour='grey',alpha=0.5) + 
+  labs(x='Rate of new infections', y='Number of draws') +
+  theme_bw()
+
+```
+
+As you can see, the most frequently drawn values are around the mean rate, and become less frequent the further we move away in either direction.
+
+# Simulating an epidemic
+
+## Predicting the number of infections in 3 weeks' time
+
+Let's try to simulate an epidemic ourselves. Consider we wanted to model COVID-19 infections for the first 20 days of the pandemic in 2020.
+
+We first need to **seed** our epidemic with some initial infections, $i_0$. Let's set  $i_0=5$, assuming five individuals arrived on a flight from a high incidence area.
+
+Next, we need to assume the average number of people each case goes on to infect. Let's set $R_0 = 3$, assuming people come into close contact with 3 people per day.
+
+```{r, out.width='90%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+# function to simulate new infections
+simulate_infections <- function(T, initial_infected, R_0, 
+                                omega, 
+                                generation_time_mean, generation_time_std) {
+  # Initialize variables
+  infected <- numeric(T)
+  infected[1] <- initial_infected
+  rt <- numeric(T)
+  rt[1] <- R_0
+
+  for (t in 2:T) {
+
+    rt[t] <- R_0
+    
+    lambda <- 0
+    for (s in 1:(t-1)) {
+      lambda <- lambda + infected[s] * rt[s] * omega(s, t, generation_time_mean, generation_time_std)
+    }
+    infected[t] <- rpois(1, lambda)
+    
+  }
+  
+  return(list(t = seq(1,T,1), infected = infected, rt = rt))
+}
+
+# define generation time distribution
+omega <- function(s, t, generation_time_mean, generation_time_std) {
+  beta <- generation_time_mean / (generation_time_std^2)
+  alpha <- generation_time_mean * beta
+  summation_gen <- sum(dgamma(0:t, shape = alpha, rate = beta))
+  p_gen <- dgamma(t - s, shape = alpha, rate = beta)
+  return(p_gen / summation_gen)
+}
+
+# simulate
+sim <- simulate_infections(20,5,R_0=3,omega,generation_time_mean=6.3, generation_time_std=4.2)
+  dsim <- data.table(t=sim$t,
+                     infected=sim$infected,
+                     rt=sim$rt)
+
+# plot the simulated epidemic for the first 20 days
+ggplot(subset(dsim,t<=20)) +
+  geom_line(aes(x=t,y=infected)) +
+  scale_color_manual(values = c('black')) +
+  coord_cartesian(xlim=c(0,20)) +
+  labs(x='Time (days)', y='Number of infections', color='') +
+  theme_bw()
+
+```
+
+So after 20 days, based on our assumed $R_0$ number, we expect to observe about $800$ new cases. How sure are we that under our assumed distribution we will observe $800$ cases? In statistics we are always concerned with uncertainty.
+
+
+## Quantifying uncertainty
+
+We can visualise this uncertainty by repeating our simulations multiple times and plotting different realisations of the epidemic with the same parameters:
+
+
+```{r, out.width='90%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+dsim <- list()
+for(rep in 1:50){
+  sim <- simulate_infections(20,5,R_0=3,omega,generation_time_mean=6.3, generation_time_std=4.2)
+  dsim[[rep]] <- data.table(rep=rep,
+                     t=sim$t,
+                     infected=sim$infected,
+                     rt=sim$rt)
+}
+dsim <- do.call(`rbind`,dsim)
+dsim[, mean_infected:= mean(infected), by='t']
+
+ggplot(subset(dsim,t<=20)) +
+  geom_line(aes(x=t,y=infected,group=rep),col='#E64B35FF',alpha=0.4) + 
+  geom_line(aes(x=t,y=mean_infected,col='Average across simulations')) +
+  scale_color_manual(values = c('black')) +
+  coord_cartesian(xlim=c(0,20)) +
+  labs(x='Time (days)', y='Number of infections', color='') +
+  theme_bw()
+
+```
+
+As you can see, we are fairly sure about the first week of the epidemic, but there is quite some uncertainty as we project further into the future. The total number of infections by day 20 could be as low as $200$ and as high as $1,000$.
+
+
+## Changing $R_0$
+
+What happens if we change some of our assumptions, such as the reproduction number? Let's assume an infected individual is expected to infect double the number of people.
+
+```{r, out.width='90%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+dsim <- list()
+for(rep in 1:50){
+  # increase R_0 to 6
+  sim <- simulate_infections(20,5,R_0=6,omega,generation_time_mean=6.3, generation_time_std=4.2)
+  dsim[[rep]] <- data.table(rep=rep,
+                     t=sim$t,
+                     infected=sim$infected,
+                     rt=sim$rt)
+}
+dsim <- do.call(`rbind`,dsim)
+dsim[, mean_infected:= mean(infected), by='t']
+
+ggplot(subset(dsim,t<=20)) +
+  geom_line(aes(x=t,y=infected,group=rep),col='#E64B35FF',alpha=0.4) + 
+  geom_line(aes(x=t,y=mean_infected,col='Average across simulations')) +
+  scale_color_manual(values = c('black')) +
+  coord_cartesian(xlim=c(0,20)) +
+  labs(x='Time (days)', y='Number of infections', color='') +
+  theme_bw()
+
+```
+
+We now expect to see an average of $85,000$ infections after 20 days, so the projections are highly sensitive to the assumed parameters.
+
+## Time-varying $R_0$ ($R_t$)
+
+For policymakers who are interested in curbing an epidemic, they might consider imposing restrictions on mobility once infections exceed a pre-chosen threshold. Say a government announces they will introduce a lockdown once cases exceed 600, and remove the lockdown once cases fall to 250. We assume that a lockdown should reduce the reproduction number by a factor of 0.85. Lifting the lockdown increases $R_t$ back to 6.
+
+
+```{r, out.width='90%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+# define time-varying R_t function
+R_t <- function(num_infected, rt, lockdown = FALSE, 
+                lockdown_initiated = 600, lockdown_lifted = 250) {
+
+  if (lockdown & num_infected > lockdown_lifted) { 
+    reduced_rt <- rt
+    return(list(rt = reduced_rt, lockdown = lockdown))
+  } else if (lockdown==FALSE & num_infected > lockdown_initiated) { 
+    reduced_rt <- rt * 0.15
+    lockdown <- TRUE
+    return(list(rt = reduced_rt, lockdown = lockdown))
+  } else if (lockdown & num_infected <= lockdown_lifted) { 
+    reduced_rt <- rt / 0.15
+    lockdown <- FALSE
+    return(list(rt = reduced_rt, lockdown = lockdown))
+  } else {
+    return(list(rt = rt, lockdown = FALSE))
+  }
+}
+
+simulate_infections <- function(T, initial_infected, R_0, 
+                                omega, 
+                                generation_time_mean, generation_time_std , 
+                                lockdown_initiated, lockdown_lifted
+                                ) {
+  # Initialize parameters
+  infected <- numeric(T)
+  infected[1] <- initial_infected
+  rt <- numeric(T)
+  rt[1] <- R_0
+  lockdown <- logical(T)
+  lockdown[1] <- FALSE
+  social_distancing <- FALSE
+  
+  for (t in 2:T) {
+    timevar_rt <- R_t(infected[t-1], rt[t-1], lockdown[t-1], 
+                  lockdown_initiated, lockdown_lifted)
+    rt[t] <- timevar_rt$rt
+    lockdown[t] <- timevar_rt$lockdown
+
+    lambda <- 0
+    for (s in 1:(t-1)) {
+      lambda <- lambda + infected[s] * rt[s] * omega(s, t, generation_time_mean, generation_time_std)
+    }
+    infected[t] <- rpois(1, lambda)
+  }
+  
+  return(list(t = seq(1,T,1), infected = infected, rt = rt))
+}
+
+# simulate for first 150 days
+dsim <- list()
+for(rep in 1:50){
+  sim <- simulate_infections(150,5,R_0=6,omega,generation_time_mean=6.3, generation_time_std=4.2,lockdown_initiated=600, lockdown_lifted=250)
+  dsim[[rep]] <- data.table(rep=rep,
+                     t=sim$t,
+                     infected=sim$infected,
+                     rt=sim$rt)
+}
+dsim <- do.call(`rbind`,dsim)
+dsim[, mean_infected:= mean(infected), by='t']
+
+ggplot(dsim) +
+  geom_line(aes(x=t,y=infected,group=rep),col='#E64B35FF',alpha=0.4) + 
+  geom_line(aes(x=t,y=mean_infected,col='Average across simulations')) +
+  geom_hline(aes(yintercept=600, col='Lockdown imposed'), linetype=2) + 
+  geom_hline(aes(yintercept=250, col='Lockdown lifted'), linetype=2) + 
+  scale_color_manual(values = c('black','#4DBBD5FF','#00A087FF')) +
+  coord_cartesian(xlim=c(0,150)) +
+  labs(x='Time (days)', y='Number of daily infections', color='') +
+  theme_bw()
+
+```
+
+You can see in the plot how the number of cases rises quickly, even after implementing the lockdown. This is because it takes time for case numbers to respond to the change in $R_t$, due to the time taken for a new infection to be generated ($w_t$ in the renewal branching process equation). Once we lift the lockdown, cases start to rise again.
+
+
+This practical was based on [Beregi and Parag, 2024](https://doi.org/10.1101/2024.05.24.24307878).
