@@ -3,7 +3,7 @@ title: |
   ![](images\IMP_ML_K_PS_CLEAR-SPACE2.png){height=14mm}
   <br><br>
   Simulating an epidemic
-author: "Alexandra Blenkinsop<br><br>"
+author: "Dr Alexandra Blenkinsop<br><br>"
 #output: pdf_document 
 output: 
   bookdown::html_document2:
@@ -42,7 +42,7 @@ set.seed(50)
 # Objectives
 Hello all!
 
-The objective of this computer practical is to understand how the renewal model can be used to model infections in an epidemic over time, and depends on different parameters.
+The objective of this computer practical is to understand how a renewal branching process can be used to model infections in an epidemic over time, and depends on different parameters.
 
 # Renewal branching process
 
@@ -57,7 +57,7 @@ The renewal branching process is modelled by,
 \begin{align}\label{e:model_deaths}
   I_t \sim \text{Poisson}(R_0 \sum_{s=0}^t I_s w_{t-s}).
 \end{align}
-We can interpret this as saying the number of new infections on day $t$ occur at a rate, which depends on:
+We can interpret this as saying the number of new infections on day $t$ occur at a time-varying rate, which depends on:
 
   *  The number of infections on each of the previous days up to day $t$ ($I_s$, $s\le t$)
   *  The average number of new people each case transmits to ($R_0$)
@@ -293,6 +293,42 @@ ggplot(dsim) +
 ```
 
 You can see in the plot how the number of cases rises quickly, even after implementing the lockdown. This is because it takes time for case numbers to respond to the change in $R_t$, due to the time taken for a new infection to be generated ($w_t$ in the renewal branching process equation). Once we lift the lockdown, cases start to rise again.
+
+
+## Changing the parameters
+
+Try changing some of the simulation parameters yourself to see how this affects the expected trajectory of infections over time.
+
+```{r, out.width='90%',include=TRUE, echo=TRUE, eval=TRUE, fig.align="center"}
+
+initial_R0 <- 6
+number_of_days <- 150
+cases_to_initiate_lockdown <- 600
+cases_to_lift_lockdown <- 250
+
+# simulate for first 150 days
+dsim <- list()
+for(rep in 1:50){
+  sim <- simulate_infections(number_of_days,5,R_0=initial_R0,omega,generation_time_mean=6.3, generation_time_std=4.2,lockdown_initiated=cases_to_initiate_lockdown, lockdown_lifted=cases_to_lift_lockdown)
+  dsim[[rep]] <- data.table(rep=rep,
+                     t=sim$t,
+                     infected=sim$infected,
+                     rt=sim$rt)
+}
+dsim <- do.call(`rbind`,dsim)
+dsim[, mean_infected:= mean(infected), by='t']
+
+ggplot(dsim) +
+  geom_line(aes(x=t,y=infected,group=rep),col='#E64B35FF',alpha=0.4) + 
+  geom_line(aes(x=t,y=mean_infected,col='Average across simulations')) +
+  geom_hline(aes(yintercept=600, col='Lockdown imposed'), linetype=2) + 
+  geom_hline(aes(yintercept=250, col='Lockdown lifted'), linetype=2) + 
+  scale_color_manual(values = c('black','#4DBBD5FF','#00A087FF')) +
+  coord_cartesian(xlim=c(0,150)) +
+  labs(x='Time (days)', y='Number of daily infections', color='') +
+  theme_bw()
+
+```
 
 
 This practical was based on [Beregi and Parag, 2024](https://doi.org/10.1101/2024.05.24.24307878).
